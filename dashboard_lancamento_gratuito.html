@@ -71,6 +71,13 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 .kpi-val{font-family:'Syne',sans-serif;font-size:20px;font-weight:700;line-height:1;color:var(--kc,var(--text));margin-bottom:2px;}
 .kpi-sub{font-size:10px;color:var(--muted);}
 
+/* STATUS DOT */
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;flex-shrink:0;vertical-align:middle;margin-right:5px;border:1px solid rgba(0,0,0,.08);cursor:help;}
+.status-dot.active{background:#22c55e;box-shadow:0 0 4px rgba(34,197,94,.5);}
+.status-dot.paused{background:#9ca3af;}
+[data-theme="dark"] .status-dot{border-color:rgba(255,255,255,.15);}
+[data-theme="dark"] .status-dot.paused{background:#6b7280;}
+
 /* FUNIL */
 .funnel-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 22px;margin-bottom:14px;box-shadow:var(--sh);}
 .funnel-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;margin-bottom:16px;}
@@ -119,8 +126,9 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 
 /* CRIATIVOS */
 .ads-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:10px;}
-.ad-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-shadow:var(--sh);transition:transform .15s;}
+.ad-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;box-shadow:var(--sh);transition:transform .15s;position:relative;}
 .ad-card:hover{transform:translateY(-2px);}
+.ad-card .status-dot{position:absolute;top:6px;right:6px;width:10px;height:10px;z-index:2;margin:0;border:2px solid var(--surface);}
 .ad-img{width:100%;aspect-ratio:4/5;background:var(--surface2);overflow:hidden;}
 .ad-img img{width:100%;height:100%;object-fit:cover;}
 .ad-img-ph{width:100%;height:100%;display:flex;align-items:center;justify-content:center;font-size:26px;color:var(--muted2);}
@@ -377,6 +385,13 @@ function funnelCls(v,bom,medio){
 }
 // CPM: menor = melhor
 function cpmCls(v){return !v?'cn':v<=CPM_BOM?'cg':v<=CPM_MEDIO?'cw2':'cr';}
+// STATUS — bolinha verde se ACTIVE, cinza caso contrário; tooltip com status exato
+function statusDot(st){
+  if(!st) return '';
+  const s=String(st).toUpperCase().trim();
+  const isActive=s==='ACTIVE';
+  return `<span class="status-dot ${isActive?'active':'paused'}" title="${s}"></span>`;
+}
 const DARK=()=>document.documentElement.getAttribute('data-theme')==='dark';
 const TXT=()=>DARK()?'#8b95a9':'#6b7280';
 const GRID=()=>DARK()?'rgba(255,255,255,.05)':'rgba(0,0,0,.05)';
@@ -767,7 +782,7 @@ function buildTable(elId,data,mainCol){
     }).join('');
     rows+=`<tr style="cursor:pointer" onclick="toggleCampRow('${cid}',this)">
       <td style="width:20px;text-align:center;color:var(--muted2);font-size:11px" id="arrow_${cid}">▶</td>
-      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:600" title="${r.n}">${r.n}</td>
+      <td style="max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:11px;font-weight:600" title="${r.n}">${statusDot(r.status)}${r.n}</td>
       ${tds}
     </tr>`;
     // Sub-linhas: conjuntos desta campanha
@@ -836,7 +851,7 @@ function toggleCampRow(id,rowEl){
       '<th class="num" style="font-size:9px;padding:4px 8px;color:var(--muted2)">CPL</th>'+
       '</tr></thead><tbody>'+
       adsets.map(a=>`<tr onclick="toggleAdsetRow('${id}','${a.n.replace(/'/g,"\'")}','${campName.replace(/'/g,"\'")}',this)" style="cursor:pointer">
-        <td style="font-size:10px;padding:5px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.n}">▶ ${a.n}</td>
+        <td style="font-size:10px;padding:5px 8px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${a.n}">▶ ${statusDot(a.status)}${a.n}</td>
         <td class="num" style="font-size:10px;padding:5px 8px">${fR(a.spend)}</td>
         <td class="num" style="font-size:10px;padding:5px 8px">${fN(a.ld)}</td>
         <td class="num ${funnelCls(a.ctr,CTR_BOM,CTR_MEDIO).cls}" style="font-size:10px;padding:5px 8px">${fP(a.ctr)}</td>
@@ -859,7 +874,12 @@ function toggleAdsetRow(campId,adsetName,campName,rowEl){
   const open=sub.style.display==='none';
   sub.style.display=open?'table-row':'none';
   const arrow=rowEl.querySelector('td:first-child');
-  if(arrow) arrow.textContent=(open?'▼':'▶')+' '+adsetName;
+  if(arrow){
+    // Reconstruir: seta + status dot + nome — buscar status do adset atual
+    const mt=getMT();
+    const adset=mt?.adsets?.find(a=>a.n===adsetName&&a.camp===campName);
+    arrow.innerHTML=(open?'▼':'▶')+' '+statusDot(adset?.status)+adsetName;
+  }
   if(open){
     const mt=getMT();
     const ads=mt?.ads?.filter(a=>a.adset===adsetName&&a.camp===campName)||[];
@@ -880,7 +900,7 @@ function toggleAdsetRow(campId,adsetName,campName,rowEl){
         '<th class="num" style="font-size:9px;padding:4px 8px;color:var(--muted2)">CPL</th>'+
         '</tr></thead><tbody>'+
         ads.map(ad=>`<tr>
-          <td style="font-size:10px;padding:5px 8px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${ad.n}">${ad.n}</td>
+          <td style="font-size:10px;padding:5px 8px;max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${ad.n}">${statusDot(ad.status)}${ad.n}</td>
           <td class="num" style="font-size:10px;padding:5px 8px">${fR(ad.spend)}</td>
           <td class="num" style="font-size:10px;padding:5px 8px">${fN(ad.ld)}</td>
           <td class="num ${funnelCls(ad.ctr,CTR_BOM,CTR_MEDIO).cls}" style="font-size:10px;padding:5px 8px">${fP(ad.ctr)}</td>
@@ -894,7 +914,9 @@ function toggleAdsetRow(campId,adsetName,campName,rowEl){
       inner.innerHTML='<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;padding:10px 10px 10px 0">'+
         ads.map(ad=>{
           const img=ad.thumb?`<img src="${ad.thumb}" style="width:100%;height:100%;object-fit:contain;background:var(--surface2)" loading="lazy" onerror="this.parentElement.innerHTML='🖼️'">`:'<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:24px;color:var(--muted2)">🖼️</div>';
-          return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden">
+          const dotHTML=ad.status?`<span class="status-dot ${String(ad.status).toUpperCase()==='ACTIVE'?'active':'paused'}" title="${String(ad.status).toUpperCase()}" style="position:absolute;top:5px;right:5px;width:10px;height:10px;z-index:2;margin:0;border:2px solid var(--surface)"></span>`:'';
+          return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden;position:relative">
+            ${dotHTML}
             <div style="width:100%;aspect-ratio:4/5;background:var(--surface2);overflow:hidden">${img}</div>
             <div style="padding:6px 8px">
               <div style="font-size:9px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-bottom:4px" title="${ad.n}">${ad.n}</div>
@@ -916,7 +938,8 @@ function renderAds(ads){
   if(!ads?.length){el.innerHTML='<div style="color:var(--muted);font-size:12px;padding:8px">Sem criativos</div>';return;}
   el.innerHTML=ads.slice(0,24).map(ad=>{
     const img=ad.thumb?`<img src="${ad.thumb}" loading="lazy" onerror="this.parentElement.innerHTML='<div class=ad-img-ph>🖼️</div>'">`:'<div class="ad-img-ph">🖼️</div>';
-    return `<div class="ad-card"><div class="ad-img">${img}</div>
+    const dot=ad.status?`<span class="status-dot ${String(ad.status).toUpperCase()==='ACTIVE'?'active':'paused'}" title="${String(ad.status).toUpperCase()}"></span>`:'';
+    return `<div class="ad-card">${dot}<div class="ad-img">${img}</div>
       <div class="ad-info"><div class="ad-name">${ad.n}</div>
         <div style="font-size:9px;color:var(--muted2);margin-bottom:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${ad.camp||''}">${ad.camp?'📁 '+ad.camp.split('-').slice(-2).join('-'):''}</div>
         <div style="font-size:8px;color:var(--muted2);opacity:.75;margin-bottom:5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${ad.adset||''}">${ad.adset?'↳ '+ad.adset:''}</div>
