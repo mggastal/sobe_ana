@@ -18,7 +18,7 @@ NOME_CLIENTE     = "Ana"
 LOGO_LETRA       = "ANA"
 COR_ACENTO       = "#0ea5e9"
 
-LANCAMENTO_COD   = "EST01"
+LANCAMENTO_COD   = ""
 USAR_PESQUISA    = True
 USAR_GOOGLE      = False
 
