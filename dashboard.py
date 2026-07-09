@@ -19,7 +19,7 @@ LOGO_LETRA       = "ANA"
 COR_ACENTO       = "#0ea5e9"
 
 LANCAMENTO_COD   = ""
-USAR_PESQUISA    = True
+USAR_PESQUISA    = False
 USAR_GOOGLE      = False
 
 FUNIL_IMPRESSOES  = True
