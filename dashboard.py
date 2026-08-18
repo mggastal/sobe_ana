@@ -39,14 +39,14 @@ _moeda_cfg    = _MOEDA_MAP.get(MOEDA, _MOEDA_MAP["BRL"])
 MOEDA_SIMBOLO = _moeda_cfg["simbolo"]
 MOEDA_LOCALE  = _moeda_cfg["locale"]
 
-CPL_BOM          = 2.0
-CPL_MEDIO        = 3.0
+CPL_BOM          = 40.0
+CPL_MEDIO        = 50.0
 CTR_BOM          = 1.2
 CTR_MEDIO        = 1.0
 CR_BOM           = 40.0
 CR_MEDIO         = 25.0
-TX_CONV_BOM      = 30.0
-TX_CONV_MEDIO    = 15.0
+TX_CONV_BOM      = 10.0
+TX_CONV_MEDIO    = 8.0
 CPM_BOM          = 5.0
 CPM_MEDIO        = 12.0
 
