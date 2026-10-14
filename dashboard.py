@@ -5,6 +5,7 @@ Gera data.json para o template-vendas-perpetuo.html em sobe-template
 """
 
 import pandas as pd, json, re, hashlib, requests
+from urllib.parse import urlparse
 from datetime import date
 from pathlib import Path
 
@@ -67,18 +68,31 @@ def safe(v):
     if v is None or (isinstance(v,float) and pd.isna(v)): return None
     return round(float(v),2) if float(v)!=0 else None
 
+_THUMBS_USADAS=set()
 def download_thumb(url, d):
+    # Nome do arquivo = hash do CAMINHO da imagem (sem a query string). A URL do Meta
+    # traz assinatura temporária (_nc_ohc, oh, oe...) que muda a cada atualização —
+    # usar a URL inteira fazia a mesma imagem ser baixada de novo todo dia.
     if not url or str(url)=="nan": return ""
     try:
-        ext=".png" if ".png" in url.lower() else ".jpg"
-        fname=hashlib.md5(url.encode()).hexdigest()[:16]+ext
+        path=urlparse(url).path
+        ext=".png" if path.lower().endswith(".png") else ".jpg"
+        fname=hashlib.md5(path.encode()).hexdigest()[:16]+ext
         fp=d/fname
         if not fp.exists():
             r=requests.get(url,timeout=10,headers={"User-Agent":"Mozilla/5.0"})
             if r.status_code==200: fp.write_bytes(r.content)
             else: return ""
+        _THUMBS_USADAS.add(fname)
         return "imgs/"+fname
     except: return ""
+
+def limpar_thumbs(d):
+    """Apaga miniaturas que nenhum anúncio do data.json usa mais."""
+    if not _THUMBS_USADAS: return
+    orfas=[f for f in d.iterdir() if f.is_file() and f.name not in _THUMBS_USADAS]
+    for f in orfas: f.unlink()
+    print(f"  imgs: {len(_THUMBS_USADAS)} em uso · {len(orfas)} órfãs removidas")
 
 # ══ META ADS ══════════════════════════════════════════
 CONV_COLS = ["Action Leads"]
@@ -215,6 +229,17 @@ def meta_raw(df):
             "sa":adset_st.get((str(r["campaign"]),str(r["adset"])),"")})
     return rows
 
+_THUMB_MAP=None
+def _thumb_map(df_full_thumb, img_dir):
+    # calculado uma vez só (meta_tables_period roda p/ cada período × lct/all)
+    global _THUMB_MAP
+    if _THUMB_MAP is None:
+        _THUMB_MAP={}
+        for _,r in df_full_thumb.iterrows():
+            k=(str(r["ad"]),str(r["adset"]),str(r["campaign"]))
+            if k not in _THUMB_MAP: _THUMB_MAP[k]=download_thumb(str(r["thumb"]),img_dir)
+    return _THUMB_MAP
+
 def meta_tables_period(df, p, img_dir):
     def ag(sub,cols):
         agg_d=dict(spend=("spend","sum"),impressions=("impressions","sum"),
@@ -249,10 +274,7 @@ def meta_tables_period(df, p, img_dir):
     adsets_agg=ag(p,["campaign","adset"])
     adsets=[{"n":str(r["adset"]),"camp":str(r["campaign"]),"status":adset_st.get((str(r["campaign"]),str(r["adset"])),""),**calc_row(r)} for _,r in adsets_agg.sort_values("leads",ascending=False).iterrows()]
     df_full_thumb=df[df["thumb"].notna()&(df["thumb"].astype(str)!="nan")] if "thumb" in df.columns else pd.DataFrame()
-    thumb_map={}
-    for _,r in df_full_thumb.iterrows():
-        k=(str(r["ad"]),str(r["adset"]),str(r["campaign"]))
-        if k not in thumb_map: thumb_map[k]=download_thumb(str(r["thumb"]),img_dir)
+    thumb_map=_thumb_map(df_full_thumb,img_dir)
     ads_extra={}
     for _c in ["reach","engagement","shares","comments","saves","thruplay","sales"]:
         if _c in p.columns: ads_extra[_c]=(_c,"sum")
@@ -458,13 +480,15 @@ def hotmart_data(df_meta):
             mensal["por_prod"][p]["liq"].append(round(float(sp["liq"].sum()),2))
             mensal["por_prod"][p]["bruto"].append(round(float(sp["bruto"].sum()),2))
 
-    # acumulado diário por produto
+    # série diária por produto (o front monta diário / semanal / acumulado)
     dias=pd.date_range(ini, fim, freq="D")
-    acum={"dias":[d.strftime("%d/%m/%y") for d in dias],"prod":{},"prod_bruto":{}}
+    diario={"dias":[d.strftime("%Y-%m-%d") for d in dias],"prod":{}}
     for p in prods:
         g=df[df["prod"]==p].groupby(df["dt"].dt.normalize())
-        acum["prod"][p]=[round(float(v),2) for v in g["liq"].sum().reindex(dias,fill_value=0).cumsum()]
-        acum["prod_bruto"][p]=[round(float(v),2) for v in g["bruto"].sum().reindex(dias,fill_value=0).cumsum()]
+        diario["prod"][p]={
+            "liq":[round(float(v),2) for v in g["liq"].sum().reindex(dias,fill_value=0)],
+            "bruto":[round(float(v),2) for v in g["bruto"].sum().reindex(dias,fill_value=0)],
+            "vendas":[int(v) for v in g.size().reindex(dias,fill_value=0)]}
 
     tot_liq=float(df["liq"].sum())
     produtos=[]
@@ -501,7 +525,7 @@ def hotmart_data(df_meta):
         "intl":int((df["Moeda de recebimento"].str.upper()!="BRL").sum()),
     }
     print(f"     {kpis['vendas']} vendas | R$ {tot_liq:,.2f} líquido | {len(prods)} produtos | {kpis['ini']} → {kpis['fim']}")
-    return {"kpis":kpis,"produtos":produtos,"mensal":mensal,"acum":acum,
+    return {"kpis":kpis,"produtos":produtos,"mensal":mensal,"diario":diario,
             "pgto":dist("pgto")}
 
 # ══ PESQUISA ══════════════════════════════════════════
@@ -547,6 +571,7 @@ def main():
     m_k=meta_kpis(df_meta); m_d=meta_daily(df_meta)
     m_dc=meta_daily_camps(df_meta); m_raw=meta_raw(df_meta)
     m_t=meta_tables(df_meta,img_dir); m_bd=meta_breakdowns(df_meta)
+    limpar_thumbs(img_dir)
     m_month=meta_monthly(df_meta)
     total_leads=m_k["lct"]["leads"] if LANCAMENTO_COD else m_k["all"]["leads"]
     print(f"  ✓ {total_leads} leads | {MOEDA_SIMBOLO} {m_k['lct']['spend']:,.2f} invest.")
