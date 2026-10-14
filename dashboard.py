@@ -385,6 +385,122 @@ def meta_monthly(df):
                 "leads":int(r["leads"]),"imp":int(r["impressions"]),"lc":int(r["link_clicks"])})
     print(f"     Meta Mensal: {len(months)} meses"); return out
 
+# ══ HOTMART ═══════════════════════════════════════════
+# Aba "hotmart" = export bruto de vendas da Hotmart. Status válidos: Completo/Aprovado.
+# Vendas recebidas em USD são convertidas p/ BRL pela taxa da própria transação.
+URL_HOTMART      = sheet_url("hotmart")
+HOTMART_STATUS   = ["Completo", "Aprovado"]
+HOTMART_PRODUTOS_CURTOS = {   # nomes curtos p/ legendas dos gráficos
+    "Aulão - Fibras sintéticas sem preconceito - uma introdução às fibras mais polêmicas da moda": "Aulão Fibras Sintéticas",
+}
+# cor de cada produto = índice fixo na paleta do hotmart.js (ordem por faturamento)
+
+def _hm_origem(sck):
+    s=str(sck).strip().lower()
+    if s in ("","(none)","nan","na|na|na|na"): return "Sem rastreio"
+    if s.startswith("meta-ads") or s.startswith("fb"): return "Meta Ads"
+    if s.startswith("ig") or s.startswith("isntagram") or s.startswith("instagram"): return "Instagram orgânico"
+    if s.startswith("whatsapp"): return "WhatsApp"
+    if "hotmart" in s: return "Hotmart (página/vitrine)"
+    return "Outros"
+
+def _hm_pgto(m):
+    m=str(m)
+    if m in ("Cartão de Crédito","Apple Pay"): return "Cartão"
+    if m=="Pix": return "Pix"
+    return "Outros"
+
+def hotmart_data(df_meta):
+    print("  Lendo hotmart...")
+    try: df=pd.read_csv(URL_HOTMART)
+    except Exception as e:
+        print(f"  ✗ aba hotmart indisponível: {e}"); return False
+    df=df[df["Status da transação"].isin(HOTMART_STATUS)].copy()
+    if df.empty: print("  ✗ sem vendas válidas"); return False
+    df["dt"]=pd.to_datetime(df["Data da transação"],format="%d/%m/%Y %H:%M:%S",errors="coerce")
+    df=df.dropna(subset=["dt"])
+    tx_c=to_num(df["Taxa de conversão (moeda de compra)"]).replace(0,1)
+    tx_r=to_num(df["Taxa de conversão (moeda de recebimento)"]).replace(0,1)
+    fx=(df["Moeda de recebimento"].str.upper()=="BRL").map({True:1.0,False:None})
+    fx=fx.where(fx.notna(), 1/(tx_c*tx_r)).astype(float)
+    df["bruto"]=to_num(df["Faturamento bruto (sem impostos)"])*fx
+    df["liq"]=to_num(df["Faturamento líquido do(a) Produtor(a)"])*fx
+    df["prod"]=df["Produto"].map(lambda p: HOTMART_PRODUTOS_CURTOS.get(p,p))
+    df["email"]=df["Email do(a) Comprador(a)"].astype(str).str.strip().str.lower()
+    df["origem"]=df["Código SCK"].map(_hm_origem)
+    df["pgto"]=df["Método de pagamento"].map(_hm_pgto)
+    df["parcelado"]=to_num(df["Quantidade total de parcelas"])>1
+    df["ym"]=df["dt"].dt.to_period("M")
+
+    prods=df.groupby("prod")["liq"].sum().sort_values(ascending=False).index.tolist()
+    months=pd.period_range(df["ym"].min(), df["ym"].max(), freq="M")
+    PT={1:"Jan",2:"Fev",3:"Mar",4:"Abr",5:"Mai",6:"Jun",7:"Jul",8:"Ago",9:"Set",10:"Out",11:"Nov",12:"Dez"}
+    lbl=[f"{PT[m.month]}/{str(m.year)[2:]}" for m in months]
+
+    # investimento Meta no mesmo período (todas as campanhas)
+    ini=df["dt"].min().normalize(); fim=df["dt"].max().normalize()
+    mm=df_meta[(df_meta["date"]>=ini)&(df_meta["date"]<=fim+pd.Timedelta(days=1))].copy()
+    mm["ym"]=mm["date"].dt.to_period("M")
+    meta_m=mm.groupby("ym")["spend"].sum()
+    meta_spend=float(mm["spend"].sum())
+
+    mensal={"lbl":lbl,"liq":[],"bruto":[],"vendas":[],"meta":[],
+            "por_prod":{p:{"vendas":[],"liq":[]} for p in prods}}
+    for m in months:
+        s=df[df["ym"]==m]
+        mensal["liq"].append(round(float(s["liq"].sum()),2))
+        mensal["bruto"].append(round(float(s["bruto"].sum()),2))
+        mensal["vendas"].append(int(len(s)))
+        mensal["meta"].append(round(float(meta_m.get(m,0)),2))
+        for p in prods:
+            sp=s[s["prod"]==p]
+            mensal["por_prod"][p]["vendas"].append(int(len(sp)))
+            mensal["por_prod"][p]["liq"].append(round(float(sp["liq"].sum()),2))
+
+    # acumulado diário por produto
+    dias=pd.date_range(ini, fim, freq="D")
+    acum={"dias":[d.strftime("%d/%m/%y") for d in dias],"prod":{}}
+    for p in prods:
+        sd=df[df["prod"]==p].groupby(df["dt"].dt.normalize())["liq"].sum().reindex(dias,fill_value=0).cumsum()
+        acum["prod"][p]=[round(float(v),2) for v in sd]
+
+    tot_liq=float(df["liq"].sum())
+    produtos=[]
+    for p in prods:
+        s=df[df["prod"]==p]
+        produtos.append({
+            "nome":p,"ci":prods.index(p),"vendas":int(len(s)),
+            "bruto":round(float(s["bruto"].sum()),2),"liq":round(float(s["liq"].sum()),2),
+            "ticket":round(float(s["liq"].mean()),2),
+            "share":round(float(s["liq"].sum())/tot_liq*100,1) if tot_liq else 0,
+            "ini":s["dt"].min().strftime("%d/%m/%Y"),"fim":s["dt"].max().strftime("%d/%m/%Y"),
+            "pix":round(float((s["pgto"]=="Pix").mean()*100),1),
+            "parcelado":round(float(s["parcelado"].mean()*100),1),
+            "meta_pct":round(float((s["origem"]=="Meta Ads").mean()*100),1),
+        })
+
+    def dist(col):
+        g=df.groupby(col).agg(vendas=("liq","size"),liq=("liq","sum")).sort_values("liq",ascending=False)
+        return {"lbl":g.index.tolist(),"vendas":[int(v) for v in g["vendas"]],"liq":[round(float(v),2) for v in g["liq"]]}
+
+    compras=df.groupby("email")["prod"].nunique()
+    comp=int(len(compras)); recompra=int((compras>1).sum())
+    best=df.groupby("ym")["liq"].sum().idxmax()
+    kpis={
+        "vendas":int(len(df)),"liq":round(tot_liq,2),"bruto":round(float(df["bruto"].sum()),2),
+        "ticket":round(tot_liq/len(df),2),"compradores":comp,"recompra":recompra,
+        "recompra_pct":round(recompra/comp*100,1) if comp else 0,
+        "produtos":len(prods),"meta_spend":round(meta_spend,2),
+        "roas":round(tot_liq/meta_spend,2) if meta_spend else None,
+        "ini":ini.strftime("%d/%m/%Y"),"fim":fim.strftime("%d/%m/%Y"),
+        "melhor_mes":f"{PT[best.month]}/{str(best.year)[2:]}",
+        "melhor_mes_liq":round(float(df[df["ym"]==best]["liq"].sum()),2),
+        "intl":int((df["Moeda de recebimento"].str.upper()!="BRL").sum()),
+    }
+    print(f"     {kpis['vendas']} vendas | R$ {tot_liq:,.2f} líquido | {len(prods)} produtos | {kpis['ini']} → {kpis['fim']}")
+    return {"kpis":kpis,"produtos":produtos,"mensal":mensal,"acum":acum,
+            "origem":dist("origem"),"pgto":dist("pgto")}
+
 # ══ PESQUISA ══════════════════════════════════════════
 def load_pesquisa():
     print("  Lendo pesquisa..."); return pd.read_csv(sheet_url("Pesquisa"))
@@ -439,6 +555,9 @@ def main():
     g_month={"lbl":[],"totalS":[],"totalConv":[],"cpaG":[],"cpcG":[],"ctrG":[],"camps":[]}
     g_raw=[]
 
+    print("\n[HOTMART]")
+    hm=hotmart_data(df_meta)
+
     print("\n[PESQUISA]")
     if USAR_PESQUISA:
         df_pes=load_pesquisa()
@@ -458,6 +577,7 @@ def main():
         "META_BD":           m_bd,
         "META_MONTHLY":      m_month,
         "PESQUISA":          pes,
+        "HOTMART":           hm,
         "GOOGLE_DAILY":      g_daily,
         "GOOGLE_KPIS":       g_kpis,
         "GOOGLE_CAMPS":      g_camps,

@@ -57,6 +57,12 @@ window.DASH_DATA = ${JSON.stringify(data)};
 window.DASH_BASE_URL = '${BASE_URL}';
 <\/script>`;
       templateHtml = templateHtml.replace('</head>', dataScript + '</head>');
+      // Página Hotmart — Fechamento Geral (exclusiva deste cliente, não está no template)
+      const extraScript = `<script src="./hotmart.js?v=${Date.now()}"><\/script>`;
+      const iBody = templateHtml.lastIndexOf('</body>');
+      templateHtml = iBody >= 0
+        ? templateHtml.slice(0, iBody) + extraScript + templateHtml.slice(iBody)
+        : templateHtml + extraScript;
 
       document.open();
       document.write(templateHtml);
