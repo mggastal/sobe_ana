@@ -445,7 +445,7 @@ def hotmart_data(df_meta):
     meta_spend=float(mm["spend"].sum())
 
     mensal={"lbl":lbl,"liq":[],"bruto":[],"vendas":[],"meta":[],
-            "por_prod":{p:{"vendas":[],"liq":[]} for p in prods}}
+            "por_prod":{p:{"vendas":[],"liq":[],"bruto":[]} for p in prods}}
     for m in months:
         s=df[df["ym"]==m]
         mensal["liq"].append(round(float(s["liq"].sum()),2))
@@ -456,13 +456,15 @@ def hotmart_data(df_meta):
             sp=s[s["prod"]==p]
             mensal["por_prod"][p]["vendas"].append(int(len(sp)))
             mensal["por_prod"][p]["liq"].append(round(float(sp["liq"].sum()),2))
+            mensal["por_prod"][p]["bruto"].append(round(float(sp["bruto"].sum()),2))
 
     # acumulado diário por produto
     dias=pd.date_range(ini, fim, freq="D")
-    acum={"dias":[d.strftime("%d/%m/%y") for d in dias],"prod":{}}
+    acum={"dias":[d.strftime("%d/%m/%y") for d in dias],"prod":{},"prod_bruto":{}}
     for p in prods:
-        sd=df[df["prod"]==p].groupby(df["dt"].dt.normalize())["liq"].sum().reindex(dias,fill_value=0).cumsum()
-        acum["prod"][p]=[round(float(v),2) for v in sd]
+        g=df[df["prod"]==p].groupby(df["dt"].dt.normalize())
+        acum["prod"][p]=[round(float(v),2) for v in g["liq"].sum().reindex(dias,fill_value=0).cumsum()]
+        acum["prod_bruto"][p]=[round(float(v),2) for v in g["bruto"].sum().reindex(dias,fill_value=0).cumsum()]
 
     tot_liq=float(df["liq"].sum())
     produtos=[]
@@ -471,7 +473,7 @@ def hotmart_data(df_meta):
         produtos.append({
             "nome":p,"ci":prods.index(p),"vendas":int(len(s)),
             "bruto":round(float(s["bruto"].sum()),2),"liq":round(float(s["liq"].sum()),2),
-            "ticket":round(float(s["liq"].mean()),2),
+            "ticket":round(float(s["liq"].mean()),2),"ticket_bruto":round(float(s["bruto"].mean()),2),
             "share":round(float(s["liq"].sum())/tot_liq*100,1) if tot_liq else 0,
             "ini":s["dt"].min().strftime("%d/%m/%Y"),"fim":s["dt"].max().strftime("%d/%m/%Y"),
             "pix":round(float((s["pgto"]=="Pix").mean()*100),1),
@@ -488,10 +490,11 @@ def hotmart_data(df_meta):
     best=df.groupby("ym")["liq"].sum().idxmax()
     kpis={
         "vendas":int(len(df)),"liq":round(tot_liq,2),"bruto":round(float(df["bruto"].sum()),2),
-        "ticket":round(tot_liq/len(df),2),"compradores":comp,"recompra":recompra,
+        "ticket":round(tot_liq/len(df),2),"ticket_bruto":round(float(df["bruto"].sum())/len(df),2),"compradores":comp,"recompra":recompra,
         "recompra_pct":round(recompra/comp*100,1) if comp else 0,
         "produtos":len(prods),"meta_spend":round(meta_spend,2),
         "roas":round(tot_liq/meta_spend,2) if meta_spend else None,
+        "roas_bruto":round(float(df["bruto"].sum())/meta_spend,2) if meta_spend else None,
         "ini":ini.strftime("%d/%m/%Y"),"fim":fim.strftime("%d/%m/%Y"),
         "melhor_mes":f"{PT[best.month]}/{str(best.year)[2:]}",
         "melhor_mes_liq":round(float(df[df["ym"]==best]["liq"].sum()),2),
@@ -499,7 +502,7 @@ def hotmart_data(df_meta):
     }
     print(f"     {kpis['vendas']} vendas | R$ {tot_liq:,.2f} líquido | {len(prods)} produtos | {kpis['ini']} → {kpis['fim']}")
     return {"kpis":kpis,"produtos":produtos,"mensal":mensal,"acum":acum,
-            "origem":dist("origem"),"pgto":dist("pgto")}
+            "pgto":dist("pgto")}
 
 # ══ PESQUISA ══════════════════════════════════════════
 def load_pesquisa():

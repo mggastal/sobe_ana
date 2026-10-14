@@ -17,7 +17,7 @@
   const k=v=>Math.abs(v)>=1000?'R$ '+(v/1000).toLocaleString('pt-BR',{maximumFractionDigits:1})+'k':brl0(v);
   const int=v=>Number(v||0).toLocaleString('pt-BR');
   const pct=v=>Number(v||0).toLocaleString('pt-BR',{maximumFractionDigits:1})+'%';
-  let mode='liq';
+  let mode='bruto', modeAc='bruto';
 
   // ── estilos ──
   const css=document.createElement('style');
@@ -32,7 +32,9 @@
   .hm-bar>i{display:block;height:100%;border-radius:3px}
   .hm-note{font-size:10px;color:var(--muted);margin-top:8px;line-height:1.5}
   .hm-wrap{overflow-x:auto}
-  @media(max-width:768px){#page-hotmart .k5,#page-hotmart .k4{grid-template-columns:repeat(2,1fr)}#page-hotmart .g2{grid-template-columns:1fr}}`;
+  #page-hotmart .k6{grid-template-columns:repeat(6,1fr)}
+  @media(max-width:1100px){#page-hotmart .k6{grid-template-columns:repeat(3,1fr)}}
+  @media(max-width:768px){#page-hotmart .k6{grid-template-columns:repeat(2,1fr)}#page-hotmart .g2{grid-template-columns:1fr}}`;
   document.head.appendChild(css);
 
   // ── sidebar ──
@@ -54,15 +56,15 @@
       <div style="font-family:'Syne',sans-serif;font-size:17px;font-weight:700;margin-bottom:3px">Hotmart — Fechamento Geral</div>
       <div style="font-size:12px;color:var(--muted)">${K.ini} → ${K.fim} · ${K.produtos} produtos · todo o histórico (não usa o filtro de período)</div>
     </div>
-    <div class="krow k5" id="hmK1"></div>
-    <div class="krow k4 mb14" id="hmK2"></div>
+    <div class="krow k6 mb14" id="hmK1"></div>
 
     <div class="cc mb14">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">
         <div><div class="cc-t">Faturamento mensal por produto</div>
-        <div class="cc-s" id="hmMensalSub">Faturamento líquido (R$) · barras empilhadas por produto</div></div>
+        <div class="cc-s" id="hmMensalSub"></div></div>
         <div class="period-bar">
-          <button class="pb active" id="hmModeLiq" onclick="hmSetMode('liq')" style="font-size:10px;padding:3px 9px">R$ Líquido</button>
+          <button class="pb active" id="hmModeBru" onclick="hmSetMode('bruto')" style="font-size:10px;padding:3px 9px">R$ Bruto</button>
+          <button class="pb" id="hmModeLiq" onclick="hmSetMode('liq')" style="font-size:10px;padding:3px 9px">R$ Líquido</button>
           <button class="pb" id="hmModeVen" onclick="hmSetMode('vendas')" style="font-size:10px;padding:3px 9px">Nº de vendas</button>
         </div>
       </div>
@@ -70,8 +72,14 @@
     </div>
 
     <div class="cc mb14">
-      <div class="cc-t">Faturamento acumulado por produto</div>
-      <div class="cc-s">Como cada produto construiu seu faturamento ao longo do período (R$ líquido acumulado)</div>
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;flex-wrap:wrap">
+        <div><div class="cc-t">Faturamento acumulado por produto</div>
+        <div class="cc-s" id="hmAcumSub"></div></div>
+        <div class="period-bar">
+          <button class="pb active" id="hmAcBru" onclick="hmSetAcum('bruto')" style="font-size:10px;padding:3px 9px">R$ Bruto</button>
+          <button class="pb" id="hmAcLiq" onclick="hmSetAcum('liq')" style="font-size:10px;padding:3px 9px">R$ Líquido</button>
+        </div>
+      </div>
       <div class="cw" style="height:260px"><canvas id="chHmAcum"></canvas></div>
     </div>
 
@@ -83,17 +91,15 @@
     </div>
 
     <div class="cc mb14">
-      <div class="cc-t">Faturamento líquido × investimento Meta Ads</div>
+      <div class="cc-t">Faturamento bruto × investimento Meta Ads</div>
       <div class="cc-s">Mesmo eixo em R$ · ROAS do mês no rótulo/tooltip · investimento = todas as campanhas Meta no mês</div>
       <div class="cw" style="height:240px"><canvas id="chHmRoas"></canvas></div>
     </div>
 
     <div class="g2">
-      <div class="cc"><div class="cc-t">Origem das vendas</div><div class="cc-s">Pelo código SCK do checkout · R$ líquido</div>
-        <div class="cw" style="height:220px"><canvas id="chHmOrigem"></canvas></div>
-        <div class="hm-note">"Sem rastreio" = checkout sem SCK (link direto, bio, e-mail, etc.).</div></div>
-      <div class="cc"><div class="cc-t">Forma de pagamento</div><div class="cc-s">Nº de vendas · Cartão inclui Apple Pay</div>
-        <div class="cw" style="height:220px"><canvas id="chHmPgto"></canvas></div></div>
+      <div class="cc"><div class="cc-t">Forma de pagamento</div><div class="cc-s">% das vendas · Cartão inclui Apple Pay</div>
+        <div class="cw" style="height:180px"><canvas id="chHmPgto"></canvas></div></div>
+      <div class="cc"><div class="cc-t" style="margin-bottom:10px">Forma de pagamento — detalhe</div><div class="hm-wrap" id="hmPgtoTbl"></div></div>
     </div>
 
     <div class="cc mb14">
@@ -107,17 +113,12 @@
   function kpi(lbl,val,sub,c,small){return `<div class="kpi" style="--kc:${c||'var(--accent)'}"><div class="kpi-lbl">${lbl}</div><div class="kpi-val"${small?' style="font-size:14px;line-height:1.25"':''}>${val}</div><div class="kpi-sub">${sub||''}</div></div>`;}
   function renderKpis(){
     document.getElementById('hmK1').innerHTML=
-      kpi('Faturamento líquido',brl0(K.liq),'Bruto: '+brl0(K.bruto),'#F04E23')+
+      kpi('Investimento Meta Ads',brl0(K.meta_spend),'no mesmo período','#64748b')+
+      kpi('Faturamento bruto',brl0(K.bruto),'antes das taxas Hotmart','#F04E23')+
+      kpi('Faturamento líquido',brl0(K.liq),pct(K.liq/K.bruto*100)+' do bruto','#F04E23')+
       kpi('Vendas',int(K.vendas),K.produtos+' produtos')+
-      kpi('Ticket médio',brl(K.ticket),'líquido por venda')+
-      kpi('Compradores únicos',int(K.compradores),int(K.recompra)+' compraram 2+ produtos ('+pct(K.recompra_pct)+')')+
-      kpi('ROAS geral',K.roas?K.roas.toLocaleString('pt-BR')+'x':'—','líquido ÷ invest. Meta','#2BB673');
-    const top=HM.produtos[0];
-    document.getElementById('hmK2').innerHTML=
-      kpi('Investimento Meta Ads',brl0(K.meta_spend),'no mesmo período')+
-      kpi('Melhor mês',K.melhor_mes,brl0(K.melhor_mes_liq)+' líquido')+
-      kpi('Produto #1 em faturamento',top.nome,brl0(top.liq)+' · '+pct(top.share),null,true)+
-      kpi('Média mensal',brl0(K.liq/HM.mensal.lbl.length),HM.mensal.lbl.length+' meses com vendas');
+      kpi('Ticket médio',brl(K.ticket_bruto),'bruto · líquido '+brl(K.ticket))+
+      kpi('ROAS',K.roas_bruto?K.roas_bruto.toLocaleString('pt-BR')+'x':'—','fat. bruto ÷ invest. Meta','#2BB673');
   }
 
   function lbls(fmt,onlyLast){
@@ -131,9 +132,9 @@
   function renderMensal(){
     dc('chHmMensal');
     const M=HM.mensal, isV=mode==='vendas';
-    const ds=HM.produtos.map(p=>({label:p.nome,data:M.por_prod[p.nome][isV?'vendas':'liq'],
+    const ds=HM.produtos.map(p=>({label:p.nome,data:M.por_prod[p.nome][mode],
       backgroundColor:cor(p.ci),borderColor:DARK()?'#111827':'#fff',borderWidth:{top:2,bottom:0,left:0,right:0},borderRadius:4,borderSkipped:'bottom',stack:'s'}));
-    const tot=isV?M.vendas:M.liq;
+    const tot=M[mode];
     const o=bo({plugins:{...bo().plugins,
       legend:{position:'bottom',labels:{color:TXT(),boxWidth:9,padding:10,font:{size:10}}},
       tooltip:{...bo().plugins.tooltip,filter:i=>i.raw>0,callbacks:{
@@ -145,9 +146,10 @@
       scales:{x:{stacked:true,ticks:{color:TXT()},grid:{display:false}},
               y:{stacked:true,ticks:{color:TXT(),callback:v=>isV?v:k(v)},grid:{color:GRID()},grace:'10%'}}});
     CH['chHmMensal']=new Chart(document.getElementById('chHmMensal'),{type:'bar',data:{labels:M.lbl,datasets:ds},options:o});
-    document.getElementById('hmMensalSub').textContent=isV?'Nº de vendas · barras empilhadas por produto':'Faturamento líquido (R$) · barras empilhadas por produto';
+    document.getElementById('hmMensalSub').textContent=({bruto:'Faturamento bruto (R$)',liq:'Faturamento líquido (R$)',vendas:'Nº de vendas'})[mode]+' · barras empilhadas por produto';
   }
   window.hmSetMode=function(m){mode=m;
+    document.getElementById('hmModeBru').classList.toggle('active',m==='bruto');
     document.getElementById('hmModeLiq').classList.toggle('active',m==='liq');
     document.getElementById('hmModeVen').classList.toggle('active',m==='vendas');
     renderMensal();};
@@ -155,7 +157,7 @@
   function renderAcum(){
     dc('chHmAcum');
     const A=HM.acum;
-    const ds=HM.produtos.map(p=>({label:p.nome,data:A.prod[p.nome],borderColor:cor(p.ci),backgroundColor:cor(p.ci),
+    const ds=HM.produtos.map(p=>({label:p.nome,data:(modeAc==='bruto'?A.prod_bruto:A.prod)[p.nome],borderColor:cor(p.ci),backgroundColor:cor(p.ci),
       borderWidth:2,pointRadius:0,pointHoverRadius:5,tension:0,stepped:false,fill:false}));
     const o=bo({plugins:{...bo().plugins,
       legend:{position:'bottom',labels:{color:TXT(),boxWidth:9,padding:10,font:{size:10}}},
@@ -165,7 +167,12 @@
       scales:{x:{ticks:{color:TXT(),maxTicksLimit:10},grid:{display:false}},
               y:{ticks:{color:TXT(),callback:v=>k(v)},grid:{color:GRID()}}}});
     CH['chHmAcum']=new Chart(document.getElementById('chHmAcum'),{type:'line',data:{labels:A.dias,datasets:ds},options:o});
+    document.getElementById('hmAcumSub').textContent='Como cada produto construiu seu faturamento ao longo do período (R$ '+(modeAc==='bruto'?'bruto':'líquido')+' acumulado)';
   }
+  window.hmSetAcum=function(m){modeAc=m;
+    document.getElementById('hmAcBru').classList.toggle('active',m==='bruto');
+    document.getElementById('hmAcLiq').classList.toggle('active',m==='liq');
+    renderAcum();};
 
   function renderShare(){
     dc('chHmShare');
@@ -195,7 +202,7 @@
   function renderRoas(){
     dc('chHmRoas');
     const M=HM.mensal;
-    const roas=M.liq.map((v,i)=>M.meta[i]?v/M.meta[i]:null);
+    const roas=M.bruto.map((v,i)=>M.meta[i]?v/M.meta[i]:null);
     const o=bo({plugins:{...bo().plugins,
       legend:{position:'bottom',labels:{color:TXT(),boxWidth:9,padding:10,font:{size:10}}},
       tooltip:{...bo().plugins.tooltip,callbacks:{label:c=>' '+c.dataset.label+': '+brl(c.raw),
@@ -204,19 +211,24 @@
         formatter:(v,ctx)=>roas[ctx.dataIndex]!=null?roas[ctx.dataIndex].toFixed(1).replace('.',',')+'x':''}},
       scales:{x:{ticks:{color:TXT()},grid:{display:false}},y:{ticks:{color:TXT(),callback:v=>k(v)},grid:{color:GRID()},grace:'10%'}}});
     CH['chHmRoas']=new Chart(document.getElementById('chHmRoas'),{type:'bar',data:{labels:M.lbl,datasets:[
-      {label:'Faturamento líquido',data:M.liq,backgroundColor:'#F04E23',borderRadius:4,borderSkipped:'bottom',maxBarThickness:34},
+      {label:'Faturamento bruto',data:M.bruto,backgroundColor:'#F04E23',borderRadius:4,borderSkipped:'bottom',maxBarThickness:34},
       {label:'Investimento Meta Ads',data:M.meta,backgroundColor:META_COR(),borderRadius:4,borderSkipped:'bottom',maxBarThickness:34}]},options:o});
   }
 
-  function renderDist(id,D,key,fmt){
-    dc(id);
-    const o=bo({indexAxis:'y',interaction:{mode:'nearest',intersect:false,axis:'y'},
-      plugins:{...bo().plugins,legend:{display:false},
-        tooltip:{...bo().plugins.tooltip,callbacks:{label:c=>' '+int(D.vendas[c.dataIndex])+' vendas · '+brl(D.liq[c.dataIndex])}},
-        datalabels:{display:()=>showLabels,color:TXT(),font:{size:labelSize,weight:'bold'},anchor:'end',align:'end',offset:3,clip:false,formatter:fmt}},
-      scales:{x:{ticks:{color:TXT(),callback:v=>key==='liq'?k(v):v},grid:{color:GRID()},grace:'25%'},y:{ticks:{color:TXT(),font:{size:10}},grid:{display:false}}}});
-    CH[id]=new Chart(document.getElementById(id),{type:'bar',
-      data:{labels:D.lbl,datasets:[{data:D[key],backgroundColor:DARK()?'#3987e5':'#2a78d6',borderRadius:4,borderSkipped:'start',barThickness:14}]},options:o});
+  function renderPgto(){
+    dc('chHmPgto');
+    const D=HM.pgto, tv=D.vendas.reduce((a,b)=>a+b,0), tl=D.liq.reduce((a,b)=>a+b,0);
+    const PC=DARK()?['#3987e5','#199e70','#94a3b8']:['#2a78d6','#1baf7a','#94a3b8'];
+    const c=l=>PC[l==='Cartão'?0:l==='Pix'?1:2];
+    CH['chHmPgto']=new Chart(document.getElementById('chHmPgto'),{type:'doughnut',
+      data:{labels:D.lbl,datasets:[{data:D.vendas,backgroundColor:D.lbl.map(c),borderColor:DARK()?'#111827':'#fff',borderWidth:2}]},
+      options:{responsive:true,maintainAspectRatio:false,cutout:'60%',
+        plugins:{legend:{position:'right',labels:{color:TXT(),boxWidth:9,padding:8,font:{size:10}}},
+          tooltip:{...bo().plugins.tooltip,callbacks:{label:x=>' '+int(x.raw)+' vendas ('+pct(x.raw/tv*100)+') · '+brl(D.liq[x.dataIndex])}},
+          datalabels:{display:x=>showLabels&&x.raw/tv>=.05,color:'#fff',font:{size:labelSize+1,weight:'bold'},formatter:v=>pct(v/tv*100)}}}});
+    document.getElementById('hmPgtoTbl').innerHTML=`<table class="hm-tbl"><thead><tr><th>Forma</th><th>Vendas</th><th>% vendas</th><th>Fat. líquido</th><th>% fat.</th></tr></thead><tbody>
+      ${D.lbl.map((l,i)=>`<tr><td><span class="hm-sw" style="background:${c(l)}"></span>${l}</td><td>${int(D.vendas[i])}</td><td>${pct(D.vendas[i]/tv*100)}</td><td>${brl(D.liq[i])}</td><td>${pct(D.liq[i]/tl*100)}</td></tr>`).join('')}
+      </tbody></table><div class="hm-note">"Outros" = NuPay, boleto, PayPal, MB WAY.</div>`;
   }
 
   function renderTabela(){
@@ -225,19 +237,18 @@
       <td><span class="hm-sw" style="background:${cor(p.ci)}"></span>${p.nome}
         <div class="hm-bar" style="width:140px;margin-left:17px"><i style="width:${p.liq/max*100}%;background:${cor(p.ci)}"></i></div></td>
       <td>${int(p.vendas)}</td><td>${brl(p.bruto)}</td><td><b>${brl(p.liq)}</b></td><td>${pct(p.share)}</td>
-      <td>${brl(p.ticket)}</td><td>${pct(p.pix)}</td><td>${pct(p.parcelado)}</td><td>${pct(p.meta_pct)}</td>
+      <td>${brl(p.ticket_bruto)}</td><td>${brl(p.ticket)}</td><td>${pct(p.pix)}</td><td>${pct(p.parcelado)}</td><td>${pct(p.meta_pct)}</td>
       <td>${p.ini}</td><td>${p.fim}</td></tr>`).join('');
     document.getElementById('hmTabela').innerHTML=`<table class="hm-tbl"><thead><tr>
-      <th>Produto</th><th>Vendas</th><th>Fat. bruto</th><th>Fat. líquido</th><th>% total</th><th>Ticket médio</th>
+      <th>Produto</th><th>Vendas</th><th>Fat. bruto</th><th>Fat. líquido</th><th>% total</th><th>Ticket bruto</th><th>Ticket líq.</th>
       <th>% Pix</th><th>% Parcelado</th><th>% via Meta Ads</th><th>1ª venda</th><th>Última venda</th></tr></thead>
       <tbody>${rows}<tr class="tot"><td>Total</td><td>${int(K.vendas)}</td><td>${brl(K.bruto)}</td><td>${brl(K.liq)}</td><td>100%</td>
-      <td>${brl(K.ticket)}</td><td colspan="5"></td></tr></tbody></table>`;
+      <td>${brl(K.ticket_bruto)}</td><td>${brl(K.ticket)}</td><td colspan="5"></td></tr></tbody></table>`;
   }
 
   function renderHotmart(){
     renderKpis(); renderMensal(); renderAcum(); renderShare(); renderVendas(); renderRoas();
-    renderDist('chHmOrigem',HM.origem,'liq',v=>k(v));
-    renderDist('chHmPgto',HM.pgto,'vendas',v=>int(v));
+    renderPgto();
     renderTabela();
   }
 
